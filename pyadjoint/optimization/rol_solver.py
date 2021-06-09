@@ -5,8 +5,18 @@ from ..enlisting import Enlist
 from ..overloaded_type import OverloadedType
 from ..tape import no_annotations
 
+from firedrake import utils
+from firedrake.checkpointing import DumbCheckpoint, FILE_CREATE, FILE_READ
+
 try:
     import ROL
+
+    # until firedrake#1917 is merged, we don't know the mesh/function space
+    # on which to restore a loaded vector. instead, when deserialising, we
+    # just record the filename from which to read. the when the mesh/function
+    # space are set up, we just loop through the vectors in the registry
+    # and load their data
+    _vector_registry = []
 
     class ROLObjective(ROL.Objective):
         def __init__(self, rf, scale=1.):
@@ -36,6 +46,39 @@ try:
             super(ROLVector, self).__init__()
             self.dat = dat
             self.inner_product = inner_product
+
+        def load(self):
+            """Load our data once self.dat is populated"""
+
+            with DumbCheckpoint(self.fname, mode=FILE_READ) as ckpoint:
+                for i, f in enumerate(self.dat):
+                    ckpoint.load(f, name=f"dat_{i}")
+
+        def save(self, fname):
+            with DumbCheckpoint(fname, mode=FILE_CREATE) as ckpoint:
+                for i, f in enumerate(self.dat):
+                    ckpoint.store(f, name=f"dat_{i}")
+
+        def __getstate__(self):
+            """Return a state tuple suitable for pickling"""
+
+            fname = "vector_checkpoint_{}".format(utils._new_uid())
+            self.save(fname)
+
+            return (fname, self.inner_product)
+
+        def __setstate__(self, state):
+            """Set the state from unpickling
+
+            Requires self.dat to be separately set, then self.load()
+            can be called.
+            """
+
+            # initialise C++ state
+            super().__init__()
+
+            self.fname, self.inner_product = state
+            _vector_registry.append(self)
 
         def plus(self, yy):
             for (x, y) in zip(self.dat, yy.dat):
