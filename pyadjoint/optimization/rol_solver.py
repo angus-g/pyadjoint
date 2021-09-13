@@ -205,11 +205,14 @@ try:
             icons = self.constraints[1][0]
             imuls = self.constraints[1][1]
 
-            for icon, imul in zip(icons, imuls):
+            for i, (icon, imul) in enumerate(zip(icons, imuls)):
                 zero = imul.clone()
                 ibnd = ROL.Bounds(zero, isLower=True)
 
-                rolproblem.addInequalityConstraint("Inequality Constraint", icon, imul, ibnd)
+                rolproblem.addInequalityConstraint(
+                    f"Inequality Constraint {i}",
+                    icon, imul, ibnd
+                )
 
             rolproblem.finalize()
 
