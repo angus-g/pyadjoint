@@ -150,7 +150,7 @@ try:
                 else:
                     uppervec.dat[i].assign(general_ub)
 
-            res = ROL.Bounds(lowervec, uppervec, 1.0)
+            res = ROL.Bounds(lowervec, uppervec)
             # FIXME: without this the lowervec and uppervec get cleaned up too
             # early.  This is a bug in PyROL and we'll hopefully figure that out
             # soon
@@ -192,28 +192,30 @@ try:
             parameters.
             """
 
-            bnd = self.bounds
+
+            rolproblem = ROL.Problem(self.rolobjective,
+                                     self.rolvector)
+
+            # add constraints to the problem
+            if self.bounds is not None:
+                rolproblem.addBoundConstraint(self.bounds)
+
             econs = self.constraints[0][0]
             emuls = self.constraints[0][1]
             icons = self.constraints[1][0]
             imuls = self.constraints[1][1]
-            if len(icons) > 0:
-                zeros = [i.clone() for i in imuls]
-                ibnds = [ROL.Bounds(z, isLower=True) for z in zeros]
-            else:
-                ibnds = []
 
-            rolproblem = ROL.OptimizationProblem(self.rolobjective,
-                                                 self.rolvector,
-                                                 bnd=bnd,
-                                                 econs=econs,
-                                                 emuls=emuls,
-                                                 icons=icons,
-                                                 imuls=imuls,
-                                                 ibnds=ibnds)
+            for icon, imul in zip(icons, imuls):
+                zero = imul.clone()
+                ibnd = ROL.Bounds(zero, isLower=True)
+
+                rolproblem.addInequalityConstraint("Inequality Constraint", icon, imul, ibnd)
+
+            rolproblem.finalize()
+
             x = self.rolvector
             params = ROL.ParameterList(self.params_dict, "Parameters")
-            self.solver = ROL.OptimizationSolver(rolproblem, params)
+            self.solver = ROL.Solver(rolproblem, params)
             self.solver.solve()
             return self.problem.reduced_functional.controls.delist(x.dat)
 
