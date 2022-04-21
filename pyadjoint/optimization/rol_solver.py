@@ -20,10 +20,6 @@ try:
             return self._val
 
         def gradient(self, g, x, tol):
-            if self._flag is not None and self._flag == ROL.UpdateType.Revert:
-                # re-evaluate functional to get tape in the right place for the gradient
-                self.rf(x.dat)
-
             self.deriv = self.rf.derivative()
             g.dat = g.riesz_map(self.deriv)
 
@@ -40,12 +36,21 @@ try:
                 # Temp: temporary
                 if flag == ROL.UpdateType.Initial or flag == ROL.UpdateType.Trial or flag == ROL.UpdateType.Temp:
                     self._val = self.rf(x.dat)
+                    self._tape_trial = self.rf.tape.block_vars()
                 elif flag == ROL.UpdateType.Accept:
                     # just cache the trial value
                     self._cache = self._val
+                    self._tape_cache = self._tape_trial
                 elif flag == ROL.UpdateType.Revert:
                     # revert back to the cached value
                     self._val = self._cache
+                    for k, v in self._tape_cache.items():
+                        # we use the private _checkpoint attribute
+                        # here because the public attribute is a no-op
+                        # if the control values are "active", but we
+                        # need to make sure they are reset to the
+                        # cached value as well
+                        k._checkpoint = v
 
                 self._flag = flag
 
