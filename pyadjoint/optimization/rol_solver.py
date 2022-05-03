@@ -34,13 +34,9 @@ try:
                 # Revert: revert to previous, trial has been called
                 # Trial: candidate for next
                 # Temp: temporary
-                if flag == ROL.UpdateType.Initial or flag == ROL.UpdateType.Trial or flag == ROL.UpdateType.Temp:
+                if flag in [ROL.UpdateType.Initial, ROL.UpdateType.Trial, ROL.UpdateType.Temp]:
                     self._val = self.rf(x.dat)
                     self._tape_trial = self.rf.tape.block_vars()
-                elif flag == ROL.UpdateType.Accept:
-                    # just cache the trial value
-                    self._cache = self._val
-                    self._tape_cache = self._tape_trial
                 elif flag == ROL.UpdateType.Revert:
                     # revert back to the cached value
                     self._val = self._cache
@@ -53,6 +49,10 @@ try:
                         k._checkpoint = v
 
                 self._flag = flag
+            # cache value/tape in the first instance or when accepted
+            if flag in [ROL.UpdateType.Initial, ROL.UpdateType.Accept]:
+                self._cache = self._val
+                self._tape_cache = self._tape_trial
 
             else:
                 self._val = self.rf(x.dat)
