@@ -49,10 +49,11 @@ try:
                         k._checkpoint = v
 
                 self._flag = flag
-            # cache value/tape in the first instance or when accepted
-            if flag in [ROL.UpdateType.Initial, ROL.UpdateType.Accept]:
-                self._cache = self._val
-                self._tape_cache = self._tape_trial
+
+                # cache value/tape in the first instance or when accepted
+                if flag in [ROL.UpdateType.Initial, ROL.UpdateType.Accept]:
+                    self._cache = self._val
+                    self._tape_cache = self._tape_trial
 
             else:
                 self._val = self.rf(x.dat)
