@@ -4,7 +4,10 @@ from ..overloaded_type import OverloadedType
 from ..tape import no_annotations
 
 from firedrake import utils
-from firedrake.checkpointing import DumbCheckpoint, FILE_CREATE, FILE_READ
+from firedrake.checkpointing import CheckpointFile
+
+from os.path import join, isdir
+from os import mkdir
 
 try:
     import ROL
@@ -63,30 +66,49 @@ try:
                 self._val = self.rf(x.dat)
 
     class ROLVector(ROL.Vector):
-        def __init__(self, dat, inner_product="L2"):
+        def __init__(self, dat, inner_product="L2", **kwarg):
             super(ROLVector, self).__init__()
             self.dat = dat
             self.inner_product = inner_product
 
+            # for checkpointing mesh is needed
+            self.mesh = kwarg.get("mesh", None)
+            self.chck_dir = kwarg.get("checkpoint_dir", './')
+
+            # generating the directory
+            if not isdir(self.chck_dir):
+                mkdir(self.chck_dir)
+
         def load(self):
             """Load our data once self.dat is populated"""
+            # making sure mesh is provided
+            if self.mesh is None:
+                raise ValueError('Mesh should be provided to be able to load!')
 
-            with DumbCheckpoint(self.fname, mode=FILE_READ) as ckpoint:
+            with CheckpointFile(self.fname, mode='r') as ckpoint:
                 for i, f in enumerate(self.dat):
                     ckpoint.load(f, name=f"dat_{i}")
 
         def save(self, fname):
-            with DumbCheckpoint(fname, mode=FILE_CREATE) as ckpoint:
+            """ Saving our data """
+            print(self.mesh)
+            print(type(self.mesh))
+
+            with CheckpointFile(fname, mode='w') as ckpoint:
+                ckpoint.save_mesh(self.mesh)
                 for i, f in enumerate(self.dat):
-                    ckpoint.store(f, name=f"dat_{i}")
+                    ckpoint.save_function(f, name=f"dat_{i}")
 
         def __getstate__(self):
             """Return a state tuple suitable for pickling"""
 
-            fname = "vector_checkpoint_{}".format(utils._new_uid())
+            fname = join(self.chck_dir,
+                         "vector_checkpoint_{}.h5".format(utils._new_uid()))
             self.save(fname)
 
-            return (fname, self.inner_product)
+            return (fname,
+                    self.inner_product,
+                    {"mesh": self.mesh, "checkpoint_dir": self.chck_dir})
 
         def __setstate__(self, state):
             """Set the state from unpickling
@@ -130,7 +152,10 @@ try:
             dat = []
             for x in self.dat:
                 dat.append(x._ad_copy())
-            res = ROLVector(dat, inner_product=self.inner_product)
+            res = ROLVector(dat,
+                            inner_product=self.inner_product,
+                            mesh=self.mesh,
+                            checkpoint_dir=self.chck_dir)
             res.scale(0.0)
             return res
 
@@ -176,7 +201,7 @@ try:
         Use ROL to solve the given optimisation problem.
         """
 
-        def __init__(self, problem, parameters, inner_product="L2"):
+        def __init__(self, problem, parameters, inner_product="L2", mesh=None, checkpoint_dir=None):
             """
             Create a new ROLSolver.
 
@@ -188,7 +213,10 @@ try:
             OptimizationSolver.__init__(self, problem, parameters)
             self.rolobjective = ROLObjective(problem.reduced_functional)
             x = [p.tape_value() for p in self.problem.reduced_functional.controls]
-            self.rolvector = ROLVector(x, inner_product=inner_product)
+            self.rolvector = ROLVector(x,
+                                       inner_product=inner_product,
+                                       mesh=mesh,
+                                       checkpoint_dir=checkpoint_dir)
             self.params_dict = parameters
 
             self.bounds = self.__get_bounds()
