@@ -75,25 +75,24 @@ try:
             self.mesh = kwarg.get("mesh", None)
             self.chck_dir = kwarg.get("checkpoint_dir", './')
 
-            # generating the directory
+            # ask to generate
             if not isdir(self.chck_dir):
-                mkdir(self.chck_dir)
+                raise ValueError(f"{self.chck_dir} does not exist.")
 
         def load(self):
             """Load our data once self.dat is populated"""
-            # making sure mesh is provided
-            if self.mesh is None:
-                raise ValueError('Mesh should be provided to be able to load!')
 
+            ## making sure mesh is provided
+            #if self.mesh is None:
+            #    raise ValueError('Mesh should be provided to be able to load!')
+            print(f"{self.fname}", flush=True)
             with CheckpointFile(self.fname, mode='r') as ckpoint:
-                for i, f in enumerate(self.dat):
-                    ckpoint.load(f, name=f"dat_{i}")
+                for i, _ in enumerate(self.dat):
+                    self.dat[i] = ckpoint.load_function(
+                        self.mesh, name=f"dat_{i}")
 
         def save(self, fname):
             """ Saving our data """
-            print(self.mesh)
-            print(type(self.mesh))
-
             with CheckpointFile(fname, mode='w') as ckpoint:
                 ckpoint.save_mesh(self.mesh)
                 for i, f in enumerate(self.dat):
@@ -107,8 +106,7 @@ try:
             self.save(fname)
 
             return (fname,
-                    self.inner_product,
-                    {"mesh": self.mesh, "checkpoint_dir": self.chck_dir})
+                    self.inner_product)
 
         def __setstate__(self, state):
             """Set the state from unpickling
@@ -121,6 +119,7 @@ try:
             super().__init__()
 
             self.fname, self.inner_product = state
+
             _vector_registry.append(self)
 
         def plus(self, yy):
