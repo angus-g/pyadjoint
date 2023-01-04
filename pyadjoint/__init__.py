@@ -21,5 +21,6 @@ from .optimization.optimization import minimize, maximize, print_optimization_me
 from .optimization.optimization_problem import MinimizationProblem
 from .optimization.ipopt_solver import IPOPTSolver
 from .optimization.rol_solver import ROLSolver
+from .optimization.rol_solver_checkpointed import LinMoreOptimiser, ROLCheckpointManager 
 from .optimization.constraints import InequalityConstraint, EqualityConstraint
 from .optimization.moola_problem import MoolaOptimizationProblem
