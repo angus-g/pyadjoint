@@ -3,21 +3,8 @@ from ..enlisting import Enlist
 from ..overloaded_type import OverloadedType
 from ..tape import no_annotations
 
-from firedrake import utils
-from firedrake.checkpointing import CheckpointFile
-
-from os.path import join, isdir
-from os import mkdir
-
 try:
     import ROL
-
-    # until firedrake#1917 is merged, we don't know the mesh/function space
-    # on which to restore a loaded vector. instead, when deserialising, we
-    # just record the filename from which to read. the when the mesh/function
-    # space are set up, we just loop through the vectors in the registry
-    # and load their data
-    _vector_registry = []
 
     class ROLObjective(ROL.Objective):
         def __init__(self, rf, scale=1.):
@@ -66,61 +53,10 @@ try:
                 self._val = self.rf(x.dat)
 
     class ROLVector(ROL.Vector):
-        def __init__(self, dat, inner_product="L2", **kwarg):
+        def __init__(self, dat, inner_product="L2"):
             super(ROLVector, self).__init__()
             self.dat = dat
             self.inner_product = inner_product
-
-            # for checkpointing mesh is needed
-            self.mesh = kwarg.get("mesh", None)
-            self.chck_dir = kwarg.get("checkpoint_dir", './')
-
-            # ask to generate
-            if not isdir(self.chck_dir):
-                raise ValueError(f"{self.chck_dir} does not exist.")
-
-        def load(self):
-            """Load our data once self.dat is populated"""
-
-            ## making sure mesh is provided
-            #if self.mesh is None:
-            #    raise ValueError('Mesh should be provided to be able to load!')
-            print(f"{self.fname}", flush=True)
-            with CheckpointFile(self.fname, mode='r') as ckpoint:
-                for i, _ in enumerate(self.dat):
-                    self.dat[i] = ckpoint.load_function(
-                        self.mesh, name=f"dat_{i}")
-
-        def save(self, fname):
-            """ Saving our data """
-            with CheckpointFile(fname, mode='w') as ckpoint:
-                ckpoint.save_mesh(self.mesh)
-                for i, f in enumerate(self.dat):
-                    ckpoint.save_function(f, name=f"dat_{i}")
-
-        def __getstate__(self):
-            """Return a state tuple suitable for pickling"""
-
-            fname = join(self.chck_dir,
-                         "vector_checkpoint_{}.h5".format(utils._new_uid()))
-            self.save(fname)
-
-            return (fname,
-                    self.inner_product)
-
-        def __setstate__(self, state):
-            """Set the state from unpickling
-
-            Requires self.dat to be separately set, then self.load()
-            can be called.
-            """
-
-            # initialise C++ state
-            super().__init__()
-
-            self.fname, self.inner_product = state
-
-            _vector_registry.append(self)
 
         def plus(self, yy):
             for (x, y) in zip(self.dat, yy.dat):
@@ -151,10 +87,7 @@ try:
             dat = []
             for x in self.dat:
                 dat.append(x._ad_copy())
-            res = ROLVector(dat,
-                            inner_product=self.inner_product,
-                            mesh=self.mesh,
-                            checkpoint_dir=self.chck_dir)
+            res = ROLVector(dat, inner_product=self.inner_product)
             res.scale(0.0)
             return res
 
@@ -200,7 +133,7 @@ try:
         Use ROL to solve the given optimisation problem.
         """
 
-        def __init__(self, problem, parameters, inner_product="L2", mesh=None, checkpoint_dir=None):
+        def __init__(self, problem, parameters, inner_product="L2"):
             """
             Create a new ROLSolver.
 
@@ -212,10 +145,7 @@ try:
             OptimizationSolver.__init__(self, problem, parameters)
             self.rolobjective = ROLObjective(problem.reduced_functional)
             x = [p.tape_value() for p in self.problem.reduced_functional.controls]
-            self.rolvector = ROLVector(x,
-                                       inner_product=inner_product,
-                                       mesh=mesh,
-                                       checkpoint_dir=checkpoint_dir)
+            self.rolvector = ROLVector(x, inner_product=inner_product)
             self.params_dict = parameters
 
             self.bounds = self.__get_bounds()
@@ -241,7 +171,7 @@ try:
                 else:
                     uppervec.dat[i].assign(general_ub)
 
-            res = ROL.Bounds(lowervec, uppervec)
+            res = ROL.Bounds(lowervec, uppervec, 1.0)
             # FIXME: without this the lowervec and uppervec get cleaned up too
             # early.  This is a bug in PyROL and we'll hopefully figure that out
             # soon
@@ -283,33 +213,28 @@ try:
             parameters.
             """
 
-
-            rolproblem = ROL.Problem(self.rolobjective,
-                                     self.rolvector)
-
-            # add constraints to the problem
-            if self.bounds is not None:
-                rolproblem.addBoundConstraint(self.bounds)
-
+            bnd = self.bounds
             econs = self.constraints[0][0]
             emuls = self.constraints[0][1]
             icons = self.constraints[1][0]
             imuls = self.constraints[1][1]
+            if len(icons) > 0:
+                zeros = [i.clone() for i in imuls]
+                ibnds = [ROL.Bounds(z, isLower=True) for z in zeros]
+            else:
+                ibnds = []
 
-            for i, (icon, imul) in enumerate(zip(icons, imuls)):
-                zero = imul.clone()
-                ibnd = ROL.Bounds(zero, isLower=True)
-
-                rolproblem.addInequalityConstraint(
-                    f"Inequality Constraint {i}",
-                    icon, imul, ibnd
-                )
-
-            rolproblem.finalize()
-
+            rolproblem = ROL.OptimizationProblem(self.rolobjective,
+                                                 self.rolvector,
+                                                 bnd=bnd,
+                                                 econs=econs,
+                                                 emuls=emuls,
+                                                 icons=icons,
+                                                 imuls=imuls,
+                                                 ibnds=ibnds)
             x = self.rolvector
             params = ROL.ParameterList(self.params_dict, "Parameters")
-            self.solver = ROL.Solver(rolproblem, params)
+            self.solver = ROL.OptimizationSolver(rolproblem, params)
             self.solver.solve()
             return self.problem.reduced_functional.controls.delist(x.dat)
 
