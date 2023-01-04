@@ -12,11 +12,10 @@ from .optimization_solver import OptimizationSolver
 from firedrake.checkpointing import CheckpointFile
 from firedrake import utils
 
+vector_registry = []
 
 try:
     import ROL
-
-    __vector_registry = []
 
     class __ROLCheckpointManager__(object):
         def __init__(self):
@@ -25,16 +24,18 @@ try:
             self.__ROL_mesh_file__ = None
             self.__ROL_mesh_name__ = None
             self.__index__ = 0
+            self.__clean_up = True
 
         def set_mesh(self, mesh_file_name, mesh_name):
             self.__ROL_mesh_file__ = mesh_file_name
             self.__ROL_mesh_name__ = mesh_name
 
-        def set_checkpoint_dir(self, checkpoint_dir):
+        def set_checkpoint_dir(self, checkpoint_dir, cleanup=True):
             # make sure we have the direcotory
             self.__makedir__(checkpoint_dir)
 
             self.__ROL_checkpoint_dir__ = checkpoint_dir
+            self.__clean_up = cleanup
 
         def set_iteration(self, iteration):
             self.__index__ = iteration
@@ -79,6 +80,9 @@ try:
             if self.__ROL_checkpoint_dir__ is None:
                 raise ValueError(
                     "set_checkpoint_dir to set the directory")
+
+            if not self.__clean_up:
+                return None
 
             subdir_name = os.path.join(
                 self.__ROL_checkpoint_dir__,
@@ -136,7 +140,7 @@ try:
                                 mode='r') as fi:
                 self.mesh = fi.load_mesh(ROLCheckpointManager.get_mesh_name()[1])
 
-            __vector_registry.append(self)
+            vector_registry.append(self)
 
         def __getstate__(self):
             """Return a state tuple suitable for pickling"""
@@ -230,7 +234,7 @@ try:
             self.rol_solver.rolvector.load()
 
             vec = self.rol_solver.rolvector.dat
-            for v in __vector_registry:
+            for v in vector_registry:
                 x = [p.copy(deepcopy=True) for p in vec]
                 v.dat = x
                 v.load()
