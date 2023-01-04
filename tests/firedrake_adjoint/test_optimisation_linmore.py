@@ -26,7 +26,7 @@ rol_params = {
     'Status Test': {
         'Constraint Tolerance': 0,
         'Gradient Tolerance': 1e-5,
-        'Iteration Limit': 30,
+        'Iteration Limit': 50,
     }
 }
 
