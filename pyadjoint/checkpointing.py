@@ -359,12 +359,6 @@ class CheckpointManager:
                     self._keep_init_state_in_work = True
                     break
 
-                # Handle the case for SingleMemoryStorageSchedule
-                if isinstance(self._schedule, SingleMemoryStorageSchedule):
-                    if step > 1 and var not in self.tape.timesteps[step - 1].adjoint_dependencies:
-                        var._checkpoint = None
-                    continue
-
                 # Handle variables in the initial timestep
                 if (
                     var in self.tape.timesteps[0].checkpointable_state
